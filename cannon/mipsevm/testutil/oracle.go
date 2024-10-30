@@ -67,7 +67,7 @@ func StaticPrecompileOracle(t *testing.T, precompile common.Address, requiredGas
 }
 
 func ClaimTestOracle(t *testing.T) (po mipsevm.PreimageOracle, stdOut string, stdErr string) {
-	s := uint64(1000)
+	s := uint64(0x00FFFFFF_00001000)
 	a := uint64(3)
 	b := uint64(4)
 
@@ -120,14 +120,19 @@ func ClaimTestOracle(t *testing.T) (po mipsevm.PreimageOracle, stdOut string, st
 	return oracle, fmt.Sprintf("computing %d * %d + %d\nclaim %d is good!\n", s, a, b, s*a+b), "started!"
 }
 
-func AllocOracle(t *testing.T, numAllocs int) *TestOracle {
+func AllocOracle(t *testing.T, numAllocs int, allocSize int) *TestOracle {
 	return &TestOracle{
 		hint: func(v []byte) {},
 		getPreimage: func(k [32]byte) []byte {
-			if k != preimage.LocalIndexKey(0).PreimageKey() {
+			switch k {
+			case preimage.LocalIndexKey(0).PreimageKey():
+				return binary.LittleEndian.AppendUint64(nil, uint64(numAllocs))
+			case preimage.LocalIndexKey(1).PreimageKey():
+				return binary.LittleEndian.AppendUint64(nil, uint64(allocSize))
+			default:
 				t.Fatalf("invalid preimage request for %x", k)
 			}
-			return binary.LittleEndian.AppendUint64(nil, uint64(numAllocs))
+			panic("unreachable")
 		},
 	}
 }

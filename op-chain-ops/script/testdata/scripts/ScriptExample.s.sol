@@ -8,15 +8,22 @@ interface Vm {
     function parseJsonKeys(string calldata json, string calldata key) external pure returns (string[] memory keys);
     function startPrank(address msgSender) external;
     function stopPrank() external;
+    function broadcast() external;
+    function broadcast(address msgSender) external;
+    function startBroadcast(address msgSender) external;
+    function startBroadcast() external;
+    function stopBroadcast() external;
 }
 
 // console is a minimal version of the console2 lib.
 library console {
     address constant CONSOLE_ADDRESS = address(0x000000000000000000636F6e736F6c652e6c6f67);
 
-    function _castLogPayloadViewToPure(
-        function(bytes memory) internal view fnIn
-    ) internal pure returns (function(bytes memory) internal pure fnOut) {
+    function _castLogPayloadViewToPure(function(bytes memory) internal view fnIn)
+        internal
+        pure
+        returns (function(bytes memory) internal pure fnOut)
+    {
         assembly {
             fnOut := fnIn
         }
@@ -37,32 +44,34 @@ library console {
     }
 
     function log(string memory p0) internal pure {
-        _sendLogPayload(abi.encodeWithSignature("log(string)", p0));
+        _sendLogPayload(abi.encodeWithSignature("log(string)", p0)); // nosemgrep: sol-style-use-abi-encodecall
     }
 
     function log(string memory p0, bool p1) internal pure {
-        _sendLogPayload(abi.encodeWithSignature("log(string,bool)", p0, p1));
+        _sendLogPayload(abi.encodeWithSignature("log(string,bool)", p0, p1)); // nosemgrep: sol-style-use-abi-encodecall
     }
 
     function log(string memory p0, uint256 p1) internal pure {
-        _sendLogPayload(abi.encodeWithSignature("log(string,uint256)", p0, p1));
+        _sendLogPayload(abi.encodeWithSignature("log(string,uint256)", p0, p1)); // nosemgrep: sol-style-use-abi-encodecall
     }
 
     function log(string memory p0, address p1) internal pure {
-        _sendLogPayload(abi.encodeWithSignature("log(string,address)", p0, p1));
+        _sendLogPayload(abi.encodeWithSignature("log(string,address)", p0, p1)); // nosemgrep: sol-style-use-abi-encodecall
     }
 
     function log(string memory p0, string memory p1, string memory p2) internal pure {
-        _sendLogPayload(abi.encodeWithSignature("log(string,string,string)", p0, p1, p2));
+        _sendLogPayload(abi.encodeWithSignature("log(string,string,string)", p0, p1, p2)); // nosemgrep: sol-style-use-abi-encodecall
     }
 }
 
 /// @title ScriptExample
 /// @notice ScriptExample is an example script. The Go forge script code tests that it can run this.
 contract ScriptExample {
-
     address internal constant VM_ADDRESS = address(uint160(uint256(keccak256("hevm cheat code"))));
     Vm internal constant vm = Vm(VM_ADDRESS);
+
+    // @notice counter variable to force non-pure calls.
+    uint256 public counter;
 
     /// @notice example function, runs through basic cheat-codes and console logs.
     function run() public {
@@ -90,9 +99,81 @@ contract ScriptExample {
         console.log("done!");
     }
 
+    /// @notice example function, to test vm.broadcast with.
+    function runBroadcast() public {
+        console.log("nonce start", uint256(vm.getNonce(address(this))));
+
+        console.log("testing single");
+        vm.broadcast();
+        this.call1("single_call1");
+        this.call2("single_call2");
+
+        console.log("testing start/stop");
+        vm.startBroadcast(address(uint160(0xc0ffee)));
+        this.call1("startstop_call1");
+        this.call2("startstop_call2");
+        this.callPure("startstop_pure");
+        vm.stopBroadcast();
+        this.call1("startstop_call3");
+
+        console.log("testing nested");
+        vm.startBroadcast(address(uint160(0x1234)));
+        this.nested1("nested");
+        vm.stopBroadcast();
+
+        console.log("contract deployment");
+        vm.broadcast(address(uint160(0x123456)));
+        FooBar x = new FooBar(1234);
+        require(x.foo() == 1234);
+
+        console.log("create 2");
+        vm.broadcast(address(uint160(0xcafe)));
+        FooBar y = new FooBar{salt: bytes32(uint256(42))}(1234);
+        require(y.foo() == 1234);
+        console.log("done!");
+
+        // Deploy a script without a pranked sender and check the nonce.
+        vm.broadcast();
+        new FooBar(1234);
+
+        console.log("nonce end", uint256(vm.getNonce(address(this))));
+    }
+
     /// @notice example external function, to force a CALL, and test vm.startPrank with.
     function hello(string calldata _v) external view {
         console.log(_v);
         console.log("hello msg.sender", address(msg.sender));
+    }
+
+    function call1(string calldata _v) external {
+        counter++;
+        console.log(_v);
+    }
+
+    function call2(string calldata _v) external {
+        counter++;
+        console.log(_v);
+    }
+
+    function nested1(string calldata _v) external {
+        counter++;
+        this.nested2(_v);
+    }
+
+    function nested2(string calldata _v) external {
+        counter++;
+        console.log(_v);
+    }
+
+    function callPure(string calldata _v) external pure {
+        console.log(_v);
+    }
+}
+
+contract FooBar {
+    uint256 public foo;
+
+    constructor(uint256 v) {
+        foo = v;
     }
 }

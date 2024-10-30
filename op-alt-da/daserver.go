@@ -54,6 +54,7 @@ func (d *DAServer) Start() error {
 
 	mux.HandleFunc("/get/", d.HandleGet)
 	mux.HandleFunc("/put/", d.HandlePut)
+	mux.HandleFunc("/put", d.HandlePut)
 
 	d.httpServer.Handler = mux
 
@@ -128,7 +129,7 @@ func (d *DAServer) HandlePut(w http.ResponseWriter, r *http.Request) {
 	d.log.Info("PUT", "url", r.URL)
 
 	route := path.Dir(r.URL.Path)
-	if route != "/put" {
+	if route != "/put" && r.URL.Path != "/put" {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -187,8 +188,8 @@ func (d *DAServer) HandlePut(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (b *DAServer) Endpoint() string {
-	return b.listener.Addr().String()
+func (b *DAServer) HttpEndpoint() string {
+	return fmt.Sprintf("http://%s", b.listener.Addr().String())
 }
 
 func (b *DAServer) Stop() error {

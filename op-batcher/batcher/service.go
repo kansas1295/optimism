@@ -39,6 +39,8 @@ type BatcherConfig struct {
 	// UseAltDA is true if the rollup config has a DA challenge address so the batcher
 	// will post inputs to the DA server and post commitments to blobs or calldata.
 	UseAltDA bool
+	// maximum number of concurrent blob put requests to the DA server
+	MaxConcurrentDARequests uint64
 
 	WaitNodeSync        bool
 	CheckRecentTxsDepth int
@@ -51,7 +53,7 @@ type BatcherService struct {
 	Metrics          metrics.Metricer
 	L1Client         *ethclient.Client
 	EndpointProvider dial.L2EndpointProvider
-	TxManager        *txmgr.SimpleTxManager
+	TxManager        txmgr.TxManager
 	AltDA            *altda.DAClient
 
 	BatcherConfig
@@ -73,18 +75,20 @@ type BatcherService struct {
 	NotSubmittingOnStart bool
 }
 
+type DriverSetupOption func(setup *DriverSetup)
+
 // BatcherServiceFromCLIConfig creates a new BatcherService from a CLIConfig.
 // The service components are fully started, except for the driver,
 // which will not be submitting batches (if it was configured to) until the Start part of the lifecycle.
-func BatcherServiceFromCLIConfig(ctx context.Context, version string, cfg *CLIConfig, log log.Logger) (*BatcherService, error) {
+func BatcherServiceFromCLIConfig(ctx context.Context, version string, cfg *CLIConfig, log log.Logger, opts ...DriverSetupOption) (*BatcherService, error) {
 	var bs BatcherService
-	if err := bs.initFromCLIConfig(ctx, version, cfg, log); err != nil {
+	if err := bs.initFromCLIConfig(ctx, version, cfg, log, opts...); err != nil {
 		return nil, errors.Join(err, bs.Stop(ctx)) // try to clean up our failed initialization attempt
 	}
 	return &bs, nil
 }
 
-func (bs *BatcherService) initFromCLIConfig(ctx context.Context, version string, cfg *CLIConfig, log log.Logger) error {
+func (bs *BatcherService) initFromCLIConfig(ctx context.Context, version string, cfg *CLIConfig, log log.Logger, opts ...DriverSetupOption) error {
 	bs.Version = version
 	bs.Log = log
 	bs.NotSubmittingOnStart = cfg.Stopped
@@ -93,6 +97,7 @@ func (bs *BatcherService) initFromCLIConfig(ctx context.Context, version string,
 
 	bs.PollInterval = cfg.PollInterval
 	bs.MaxPendingTransactions = cfg.MaxPendingTransactions
+	bs.MaxConcurrentDARequests = cfg.AltDA.MaxConcurrentRequests
 	bs.NetworkTimeout = cfg.TxMgrConfig.NetworkTimeout
 	bs.CheckRecentTxsDepth = cfg.CheckRecentTxsDepth
 	bs.WaitNodeSync = cfg.WaitNodeSync
@@ -105,6 +110,10 @@ func (bs *BatcherService) initFromCLIConfig(ctx context.Context, version string,
 	if err := bs.initTxManager(cfg); err != nil {
 		return fmt.Errorf("failed to init Tx manager: %w", err)
 	}
+	// must be init before driver and channel config
+	if err := bs.initAltDA(cfg); err != nil {
+		return fmt.Errorf("failed to init AltDA: %w", err)
+	}
 	if err := bs.initChannelConfig(cfg); err != nil {
 		return fmt.Errorf("failed to init channel config: %w", err)
 	}
@@ -115,11 +124,7 @@ func (bs *BatcherService) initFromCLIConfig(ctx context.Context, version string,
 	if err := bs.initPProf(cfg); err != nil {
 		return fmt.Errorf("failed to init profiling: %w", err)
 	}
-	// init before driver
-	if err := bs.initAltDA(cfg); err != nil {
-		return fmt.Errorf("failed to init AltDA: %w", err)
-	}
-	bs.initDriver()
+	bs.initDriver(opts...)
 	if err := bs.initRPCServer(cfg); err != nil {
 		return fmt.Errorf("failed to start RPC server: %w", err)
 	}
@@ -312,8 +317,8 @@ func (bs *BatcherService) initMetricsServer(cfg *CLIConfig) error {
 	return nil
 }
 
-func (bs *BatcherService) initDriver() {
-	bs.driver = NewBatchSubmitter(DriverSetup{
+func (bs *BatcherService) initDriver(opts ...DriverSetupOption) {
+	ds := DriverSetup{
 		Log:              bs.Log,
 		Metr:             bs.Metrics,
 		RollupConfig:     bs.RollupConfig,
@@ -323,7 +328,11 @@ func (bs *BatcherService) initDriver() {
 		EndpointProvider: bs.EndpointProvider,
 		ChannelConfig:    bs.ChannelConfig,
 		AltDA:            bs.AltDA,
-	})
+	}
+	for _, opt := range opts {
+		opt(&ds)
+	}
+	bs.driver = NewBatchSubmitter(ds)
 }
 
 func (bs *BatcherService) initRPCServer(cfg *CLIConfig) error {

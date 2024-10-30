@@ -121,9 +121,19 @@ func (ba *FetchingAttributesBuilder) PreparePayloadAttributes(ctx context.Contex
 		return nil, NewCriticalError(fmt.Errorf("failed to create l1InfoTx: %w", err))
 	}
 
-	txs := make([]hexutil.Bytes, 0, 1+len(depositTxs)+len(upgradeTxs))
+	var afterForceIncludeTxs []hexutil.Bytes
+	if ba.rollupCfg.IsInterop(nextL2Time) {
+		depositsCompleteTx, err := DepositsCompleteBytes(seqNumber, l1Info)
+		if err != nil {
+			return nil, NewCriticalError(fmt.Errorf("failed to create depositsCompleteTx: %w", err))
+		}
+		afterForceIncludeTxs = append(afterForceIncludeTxs, depositsCompleteTx)
+	}
+
+	txs := make([]hexutil.Bytes, 0, 1+len(depositTxs)+len(afterForceIncludeTxs)+len(upgradeTxs))
 	txs = append(txs, l1InfoTx)
 	txs = append(txs, depositTxs...)
+	txs = append(txs, afterForceIncludeTxs...)
 	txs = append(txs, upgradeTxs...)
 
 	var withdrawals *types.Withdrawals
@@ -139,7 +149,7 @@ func (ba *FetchingAttributesBuilder) PreparePayloadAttributes(ctx context.Contex
 		}
 	}
 
-	return &eth.PayloadAttributes{
+	r := &eth.PayloadAttributes{
 		Timestamp:             hexutil.Uint64(nextL2Time),
 		PrevRandao:            eth.Bytes32(l1Info.MixDigest()),
 		SuggestedFeeRecipient: predeploys.SequencerFeeVaultAddr,
@@ -148,5 +158,11 @@ func (ba *FetchingAttributesBuilder) PreparePayloadAttributes(ctx context.Contex
 		GasLimit:              (*eth.Uint64Quantity)(&sysConfig.GasLimit),
 		Withdrawals:           withdrawals,
 		ParentBeaconBlockRoot: parentBeaconRoot,
-	}, nil
+	}
+	if ba.rollupCfg.IsHolocene(nextL2Time) {
+		r.EIP1559Params = new(eth.Bytes8)
+		*r.EIP1559Params = sysConfig.EIP1559Params
+	}
+
+	return r, nil
 }

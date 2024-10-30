@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-// Testing utilities
+// Testing
 import { Bridge_Initializer } from "test/setup/Bridge_Initializer.sol";
 import { NextImpl } from "test/mocks/NextImpl.sol";
 import { EIP1967Helper } from "test/mocks/EIP1967Helper.sol";
 
-// Target contract dependencies
+// Contracts
 import { OptimismMintableERC20 } from "src/universal/OptimismMintableERC20.sol";
-import { Proxy } from "src/universal/Proxy.sol";
-
-// Target contract
 import { OptimismMintableERC20Factory } from "src/universal/OptimismMintableERC20Factory.sol";
+
+// Interfaces
+import { IProxy } from "src/universal/interfaces/IProxy.sol";
+import { IOptimismMintableERC20Factory } from "src/universal/interfaces/IOptimismMintableERC20Factory.sol";
 
 contract OptimismMintableTokenFactory_Test is Bridge_Initializer {
     event StandardL2TokenCreated(address indexed remoteToken, address indexed localToken);
@@ -19,7 +20,7 @@ contract OptimismMintableTokenFactory_Test is Bridge_Initializer {
 
     /// @notice Tests that the constructor is initialized correctly.
     function test_constructor_succeeds() external {
-        OptimismMintableERC20Factory impl = new OptimismMintableERC20Factory();
+        IOptimismMintableERC20Factory impl = IOptimismMintableERC20Factory(address(new OptimismMintableERC20Factory()));
         assertEq(address(impl.BRIDGE()), address(0));
         assertEq(address(impl.bridge()), address(0));
     }
@@ -32,7 +33,7 @@ contract OptimismMintableTokenFactory_Test is Bridge_Initializer {
 
     /// @notice Tests that the upgrade is successful.
     function test_upgrading_succeeds() external {
-        Proxy proxy = Proxy(deploy.mustGetAddress("OptimismMintableERC20FactoryProxy"));
+        IProxy proxy = IProxy(deploy.mustGetAddress("OptimismMintableERC20FactoryProxy"));
         // Check an unused slot before upgrading.
         bytes32 slot21Before = vm.load(address(l1OptimismMintableERC20Factory), bytes32(uint256(21)));
         assertEq(bytes32(0), slot21Before);
@@ -41,7 +42,7 @@ contract OptimismMintableTokenFactory_Test is Bridge_Initializer {
         vm.startPrank(EIP1967Helper.getAdmin(address(proxy)));
         // Reviewer note: the NextImpl() still uses reinitializer. If we want to remove that, we'll need to use a
         //   two step upgrade with the Storage lib.
-        proxy.upgradeToAndCall(address(nextImpl), abi.encodeWithSelector(NextImpl.initialize.selector, 2));
+        proxy.upgradeToAndCall(address(nextImpl), abi.encodeCall(NextImpl.initialize, (2)));
         assertEq(proxy.implementation(), address(nextImpl));
 
         // Verify that the NextImpl contract initialized its values according as expected

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
+// TODO: Migrate this script to use DeployUtils
 
 import { console2 as console } from "forge-std/console2.sol";
 import { Script } from "forge-std/Script.sol";
@@ -10,7 +11,6 @@ import { PeripheryDeployConfig } from "scripts/periphery/deploy/PeripheryDeployC
 
 import { ProxyAdmin } from "src/universal/ProxyAdmin.sol";
 import { Proxy } from "src/universal/Proxy.sol";
-import { L1StandardBridge } from "src/L1/L1StandardBridge.sol";
 import { Faucet } from "src/periphery/faucet/Faucet.sol";
 import { Drippie } from "src/periphery/drippie/Drippie.sol";
 import { CheckGelatoLow } from "src/periphery/drippie/dripchecks/CheckGelatoLow.sol";
@@ -277,7 +277,7 @@ contract DeployPeriphery is Script, Artifacts {
             assembly {
                 addr_ := create2(0, add(initCode, 0x20), mload(initCode), salt)
             }
-            require(addr_ != address(0), "deployment failed");
+            require(addr_ != address(0), "DeployPeriphery: deployment failed");
             save(_name, addr_);
             console.log("%s deployed at %s", _name, addr_);
         }

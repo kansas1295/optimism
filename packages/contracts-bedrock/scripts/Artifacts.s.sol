@@ -4,14 +4,11 @@ pragma solidity ^0.8.0;
 import { console2 as console } from "forge-std/console2.sol";
 import { stdJson } from "forge-std/StdJson.sol";
 import { Vm } from "forge-std/Vm.sol";
-import { Executables } from "scripts/libraries/Executables.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
 import { Config } from "scripts/libraries/Config.sol";
 import { StorageSlot } from "scripts/libraries/ForgeArtifacts.sol";
-import { EIP1967Helper } from "test/mocks/EIP1967Helper.sol";
 import { LibString } from "@solady/utils/LibString.sol";
 import { ForgeArtifacts } from "scripts/libraries/ForgeArtifacts.sol";
-import { IAddressManager } from "scripts/interfaces/IAddressManager.sol";
 import { Process } from "scripts/libraries/Process.sol";
 
 /// @notice Represents a deployment. Is serialized to JSON as a key/value
@@ -28,13 +25,15 @@ struct Deployment {
 abstract contract Artifacts {
     /// @notice Foundry cheatcode VM.
     Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
-    /// @notice Error for when attempting to fetch a deployment and it does not exist
 
+    /// @notice Error for when attempting to fetch a deployment and it does not exist
     error DeploymentDoesNotExist(string);
     /// @notice Error for when trying to save an invalid deployment
     error InvalidDeployment(string);
-    /// @notice The set of deployments that have been done during execution.
+    /// @notice Error for when attempting to load the initialized slot of an unsupported contract.
+    error UnsupportedInitializableContract(string);
 
+    /// @notice The set of deployments that have been done during execution.
     mapping(string => Deployment) internal _namedDeployments;
     /// @notice The same as `_namedDeployments` but as an array.
     Deployment[] internal _newDeployments;
@@ -152,6 +151,12 @@ abstract contract Artifacts {
             return payable(Predeploys.SCHEMA_REGISTRY);
         } else if (digest == keccak256(bytes("EAS"))) {
             return payable(Predeploys.EAS);
+        } else if (digest == keccak256(bytes("OptimismSuperchainERC20Factory"))) {
+            return payable(Predeploys.OPTIMISM_SUPERCHAIN_ERC20_FACTORY);
+        } else if (digest == keccak256(bytes("OptimismSuperchainERC20Beacon"))) {
+            return payable(Predeploys.OPTIMISM_SUPERCHAIN_ERC20_BEACON);
+        } else if (digest == keccak256(bytes("SuperchainTokenBridge"))) {
+            return payable(Predeploys.SUPERCHAIN_TOKEN_BRIDGE);
         }
         return payable(address(0));
     }
@@ -178,6 +183,7 @@ abstract contract Artifacts {
     /// @param _name The name of the deployment.
     /// @param _deployed The address of the deployment.
     function save(string memory _name, address _deployed) public {
+        console.log("Saving %s: %s", _name, _deployed);
         if (bytes(_name).length == 0) {
             revert InvalidDeployment("EmptyName");
         }
@@ -185,7 +191,6 @@ abstract contract Artifacts {
             revert InvalidDeployment("AlreadyExists");
         }
 
-        console.log("Saving %s: %s", _name, _deployed);
         Deployment memory deployment = Deployment({ name: _name, addr: payable(_deployed) });
         _namedDeployments[_name] = deployment;
         _newDeployments.push(deployment);
@@ -211,20 +216,14 @@ abstract contract Artifacts {
 
     /// @notice Returns the value of the internal `_initialized` storage slot for a given contract.
     function loadInitializedSlot(string memory _contractName) public returns (uint8 initialized_) {
-        address contractAddress;
-        // Check if the contract name ends with `Proxy` and, if so, get the implementation address
+        address contractAddress = mustGetAddress(_contractName);
+
+        // Check if the contract name ends with `Proxy` and, if so override the contract name which is used to
+        // retrieve the storage layout.
         if (LibString.endsWith(_contractName, "Proxy")) {
-            contractAddress = EIP1967Helper.getImplementation(getAddress(_contractName));
             _contractName = LibString.slice(_contractName, 0, bytes(_contractName).length - 5);
-            // If the EIP1967 implementation address is 0, we try to get the implementation address from legacy
-            // AddressManager, which would work if the proxy is ResolvedDelegateProxy like L1CrossDomainMessengerProxy.
-            if (contractAddress == address(0)) {
-                contractAddress =
-                    IAddressManager(mustGetAddress("AddressManager")).getAddress(string.concat("OVM_", _contractName));
-            }
-        } else {
-            contractAddress = mustGetAddress(_contractName);
         }
+
         StorageSlot memory slot = ForgeArtifacts.getInitializedSlot(_contractName);
         bytes32 slotVal = vm.load(contractAddress, bytes32(vm.parseUint(slot.slot)));
         initialized_ = uint8((uint256(slotVal) >> (slot.offset * 8)) & 0xFF);

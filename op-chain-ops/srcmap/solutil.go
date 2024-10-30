@@ -120,6 +120,10 @@ type SourceMap struct {
 // This location is the source file-path, the line number, and column number.
 // This may return an error, as the source-file is lazy-loaded to calculate the position data.
 func (s *SourceMap) Info(pc uint64) (source string, line uint32, col uint32, err error) {
+	if pc >= uint64(len(s.Instr)) {
+		source = "invalid"
+		return
+	}
 	instr := s.Instr[pc]
 	if instr.F < 0 || instr == (InstrMapping{}) {
 		return "generated", 0, 0, nil
@@ -234,13 +238,30 @@ func (s *SourceMapTracer) info(codeAddr common.Address, pc uint64) string {
 
 func (s *SourceMapTracer) OnOpCode(pc uint64, opcode byte, gas, cost uint64, scope tracing.OpContext, rData []byte, depth int, err error) {
 	op := vm.OpCode(opcode)
+	var top []string
+	stk := scope.StackData()
+	for i := len(stk) - 1; i >= 0; i-- {
+		top = append(top, stk[i].Hex())
+		if len(top) == 4 {
+			break
+		}
+	}
+	stkInfo := fmt.Sprintf("[%s]", strings.Join(top, ", "))
+
 	if op.IsPush() {
-		start := uint64(op) - uint64(vm.PUSH1) + 1
-		val := scope.StackData()[:start]
-		fmt.Fprintf(s.out, "%-40s : pc %x opcode %s (%x)\n", s.info(scope.Address(), pc), pc, op.String(), val)
+		var val []byte
+		sc, ok := scope.(*vm.ScopeContext)
+		if ok {
+			start := pc + 1
+			end := uint64(op) - uint64(vm.PUSH1) + 1
+			val = sc.Contract.Code[start : start+end]
+		} else {
+			val = []byte("N/A")
+		}
+		fmt.Fprintf(s.out, "%-40s : pc %x opcode %s (%x) \t| stk[:%d] %s\n", s.info(scope.Address(), pc), pc, op.String(), val, len(top), stkInfo)
 		return
 	}
-	fmt.Fprintf(s.out, "%-40s : pc %x opcode %s\n", s.info(scope.Address(), pc), pc, op.String())
+	fmt.Fprintf(s.out, "%-40s : pc %x opcode %s \t\t| stk[:%d] %s\n", s.info(scope.Address(), pc), pc, op.String(), len(top), stkInfo)
 }
 
 func (s *SourceMapTracer) OnFault(pc uint64, opcode byte, gas, cost uint64, scope tracing.OpContext, depth int, err error) {

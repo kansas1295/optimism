@@ -1,26 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-// Testing utilities
+// Testing
 import { CommonTest } from "test/setup/CommonTest.sol";
+
+// Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // Libraries
 import { Constants } from "src/libraries/Constants.sol";
-import { EIP1967Helper } from "test/mocks/EIP1967Helper.sol";
 import { Predeploys } from "src/libraries/Predeploys.sol";
-
-// Target contract dependencies
-import { ResourceMetering } from "src/L1/ResourceMetering.sol";
-import { Proxy } from "src/universal/Proxy.sol";
-import { L1Block } from "src/L2/L1Block.sol";
 import { GasPayingToken } from "src/libraries/GasPayingToken.sol";
 
-// Target contract
-import { SystemConfig } from "src/L1/SystemConfig.sol";
+// Interfaces
+import { IResourceMetering } from "src/L1/interfaces/IResourceMetering.sol";
+import { ISystemConfig } from "src/L1/interfaces/ISystemConfig.sol";
+import { IL1Block } from "src/L2/interfaces/IL1Block.sol";
 
 contract SystemConfig_Init is CommonTest {
-    event ConfigUpdate(uint256 indexed version, SystemConfig.UpdateType indexed updateType, bytes data);
+    event ConfigUpdate(uint256 indexed version, ISystemConfig.UpdateType indexed updateType, bytes data);
 }
 
 contract SystemConfig_Initialize_Test is SystemConfig_Init {
@@ -49,7 +47,7 @@ contract SystemConfig_Initialize_Test is SystemConfig_Init {
 
     /// @dev Tests that constructor sets the correct values.
     function test_constructor_succeeds() external view {
-        SystemConfig impl = SystemConfig(systemConfigImpl);
+        ISystemConfig impl = ISystemConfig(systemConfigImpl);
         assertEq(impl.owner(), address(0xdEaD));
         assertEq(impl.overhead(), 0);
         assertEq(impl.scalar(), uint256(0x01) << 248);
@@ -58,7 +56,7 @@ contract SystemConfig_Initialize_Test is SystemConfig_Init {
         assertEq(impl.unsafeBlockSigner(), address(0));
         assertEq(impl.basefeeScalar(), 0);
         assertEq(impl.blobbasefeeScalar(), 0);
-        ResourceMetering.ResourceConfig memory actual = impl.resourceConfig();
+        IResourceMetering.ResourceConfig memory actual = impl.resourceConfig();
         assertEq(actual.maxResourceLimit, 1);
         assertEq(actual.elasticityMultiplier, 1);
         assertEq(actual.baseFeeMaxChangeDenominator, 2);
@@ -91,8 +89,8 @@ contract SystemConfig_Initialize_Test is SystemConfig_Init {
         assertEq(systemConfig.basefeeScalar(), basefeeScalar);
         assertEq(systemConfig.blobbasefeeScalar(), blobbasefeeScalar);
         // Depends on `initialize` being called with defaults
-        ResourceMetering.ResourceConfig memory rcfg = Constants.DEFAULT_RESOURCE_CONFIG();
-        ResourceMetering.ResourceConfig memory actual = systemConfig.resourceConfig();
+        IResourceMetering.ResourceConfig memory rcfg = Constants.DEFAULT_RESOURCE_CONFIG();
+        IResourceMetering.ResourceConfig memory actual = systemConfig.resourceConfig();
         assertEq(actual.maxResourceLimit, rcfg.maxResourceLimit);
         assertEq(actual.elasticityMultiplier, rcfg.elasticityMultiplier);
         assertEq(actual.baseFeeMaxChangeDenominator, rcfg.baseFeeMaxChangeDenominator);
@@ -138,7 +136,7 @@ contract SystemConfig_Initialize_TestFail is SystemConfig_Initialize_Test {
             _unsafeBlockSigner: address(1),
             _config: Constants.DEFAULT_RESOURCE_CONFIG(),
             _batchInbox: address(0),
-            _addresses: SystemConfig.Addresses({
+            _addresses: ISystemConfig.Addresses({
                 l1CrossDomainMessenger: address(0),
                 l1ERC721Bridge: address(0),
                 l1StandardBridge: address(0),
@@ -168,7 +166,7 @@ contract SystemConfig_Initialize_TestFail is SystemConfig_Initialize_Test {
             _unsafeBlockSigner: address(1),
             _config: Constants.DEFAULT_RESOURCE_CONFIG(),
             _batchInbox: address(0),
-            _addresses: SystemConfig.Addresses({
+            _addresses: ISystemConfig.Addresses({
                 l1CrossDomainMessenger: address(0),
                 l1ERC721Bridge: address(0),
                 l1StandardBridge: address(0),
@@ -199,7 +197,7 @@ contract SystemConfig_Initialize_TestFail is SystemConfig_Initialize_Test {
             _unsafeBlockSigner: address(1),
             _config: Constants.DEFAULT_RESOURCE_CONFIG(),
             _batchInbox: address(0),
-            _addresses: SystemConfig.Addresses({
+            _addresses: ISystemConfig.Addresses({
                 l1CrossDomainMessenger: address(0),
                 l1ERC721Bridge: address(0),
                 l1StandardBridge: address(0),
@@ -217,7 +215,7 @@ contract SystemConfig_Init_ResourceConfig is SystemConfig_Init {
     /// @dev Tests that `setResourceConfig` reverts if the min base fee
     ///      is greater than the maximum allowed base fee.
     function test_setResourceConfig_badMinMax_reverts() external {
-        ResourceMetering.ResourceConfig memory config = ResourceMetering.ResourceConfig({
+        IResourceMetering.ResourceConfig memory config = IResourceMetering.ResourceConfig({
             maxResourceLimit: 20_000_000,
             elasticityMultiplier: 10,
             baseFeeMaxChangeDenominator: 8,
@@ -231,7 +229,7 @@ contract SystemConfig_Init_ResourceConfig is SystemConfig_Init {
     /// @dev Tests that `setResourceConfig` reverts if the baseFeeMaxChangeDenominator
     ///      is zero.
     function test_setResourceConfig_zeroDenominator_reverts() external {
-        ResourceMetering.ResourceConfig memory config = ResourceMetering.ResourceConfig({
+        IResourceMetering.ResourceConfig memory config = IResourceMetering.ResourceConfig({
             maxResourceLimit: 20_000_000,
             elasticityMultiplier: 10,
             baseFeeMaxChangeDenominator: 0,
@@ -246,7 +244,7 @@ contract SystemConfig_Init_ResourceConfig is SystemConfig_Init {
     function test_setResourceConfig_lowGasLimit_reverts() external {
         uint64 gasLimit = systemConfig.gasLimit();
 
-        ResourceMetering.ResourceConfig memory config = ResourceMetering.ResourceConfig({
+        IResourceMetering.ResourceConfig memory config = IResourceMetering.ResourceConfig({
             maxResourceLimit: uint32(gasLimit),
             elasticityMultiplier: 10,
             baseFeeMaxChangeDenominator: 8,
@@ -260,7 +258,7 @@ contract SystemConfig_Init_ResourceConfig is SystemConfig_Init {
     /// @dev Tests that `setResourceConfig` reverts if the elasticity multiplier
     ///      and max resource limit are configured such that there is a loss of precision.
     function test_setResourceConfig_badPrecision_reverts() external {
-        ResourceMetering.ResourceConfig memory config = ResourceMetering.ResourceConfig({
+        IResourceMetering.ResourceConfig memory config = IResourceMetering.ResourceConfig({
             maxResourceLimit: 20_000_000,
             elasticityMultiplier: 11,
             baseFeeMaxChangeDenominator: 8,
@@ -274,7 +272,7 @@ contract SystemConfig_Init_ResourceConfig is SystemConfig_Init {
     /// @dev Helper to initialize the system config with a resource config and default values, and expect a revert
     ///      with the given message.
     function _initializeWithResourceConfig(
-        ResourceMetering.ResourceConfig memory config,
+        IResourceMetering.ResourceConfig memory config,
         string memory revertMessage
     )
         internal
@@ -294,7 +292,7 @@ contract SystemConfig_Init_ResourceConfig is SystemConfig_Init {
             _unsafeBlockSigner: address(0),
             _config: config,
             _batchInbox: address(0),
-            _addresses: SystemConfig.Addresses({
+            _addresses: ISystemConfig.Addresses({
                 l1CrossDomainMessenger: address(0),
                 l1ERC721Bridge: address(0),
                 l1StandardBridge: address(0),
@@ -313,6 +311,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
     function setUp() public override {
         token = new ERC20("Silly", "SIL");
         super.enableCustomGasToken(address(token));
+
         super.setUp();
     }
 
@@ -332,7 +331,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
             _unsafeBlockSigner: address(1),
             _config: Constants.DEFAULT_RESOURCE_CONFIG(),
             _batchInbox: address(0),
-            _addresses: SystemConfig.Addresses({
+            _addresses: ISystemConfig.Addresses({
                 l1CrossDomainMessenger: address(0),
                 l1ERC721Bridge: address(0),
                 disputeGameFactory: address(0),
@@ -376,9 +375,9 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
         vm.assume(bytes(_name).length <= 32);
         vm.assume(bytes(_symbol).length <= 32);
 
-        vm.mockCall(_token, abi.encodeWithSelector(token.decimals.selector), abi.encode(18));
-        vm.mockCall(_token, abi.encodeWithSelector(token.name.selector), abi.encode(_name));
-        vm.mockCall(_token, abi.encodeWithSelector(token.symbol.selector), abi.encode(_symbol));
+        vm.mockCall(_token, abi.encodeCall(token.decimals, ()), abi.encode(18));
+        vm.mockCall(_token, abi.encodeCall(token.name, ()), abi.encode(_name));
+        vm.mockCall(_token, abi.encodeCall(token.symbol, ()), abi.encode(_symbol));
 
         cleanStorageAndInit(_token);
 
@@ -422,7 +421,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
 
     /// @dev Tests that initialization fails if decimals are not 18.
     function test_initialize_customGasToken_wrongDecimals_fails() external {
-        vm.mockCall(address(token), abi.encodeWithSelector(token.decimals.selector), abi.encode(8));
+        vm.mockCall(address(token), abi.encodeCall(token.decimals, ()), abi.encode(8));
         vm.expectRevert("SystemConfig: bad decimals of gas paying token");
 
         cleanStorageAndInit(address(token));
@@ -433,7 +432,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
         string memory name = new string(32);
         name = string.concat(name, "a");
 
-        vm.mockCall(address(token), abi.encodeWithSelector(token.name.selector), abi.encode(name));
+        vm.mockCall(address(token), abi.encodeCall(token.name, ()), abi.encode(name));
         vm.expectRevert("GasPayingToken: string cannot be greater than 32 bytes");
 
         cleanStorageAndInit(address(token));
@@ -444,7 +443,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
         string memory symbol = new string(33);
         symbol = string.concat(symbol, "a");
 
-        vm.mockCall(address(token), abi.encodeWithSelector(token.symbol.selector), abi.encode(symbol));
+        vm.mockCall(address(token), abi.encodeCall(token.symbol, ()), abi.encode(symbol));
         vm.expectRevert("GasPayingToken: string cannot be greater than 32 bytes");
 
         cleanStorageAndInit(address(token));
@@ -467,7 +466,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
                 uint256(0), // value
                 uint64(200_000), // gasLimit
                 false, // isCreation,
-                abi.encodeCall(L1Block.setGasPayingToken, (address(token), 18, bytes32("Silly"), bytes32("SIL")))
+                abi.encodeCall(IL1Block.setGasPayingToken, (address(token), 18, bytes32("Silly"), bytes32("SIL")))
             )
         );
 
@@ -527,13 +526,34 @@ contract SystemConfig_Setters_TestFail is SystemConfig_Init {
         vm.expectRevert("SystemConfig: gas limit too high");
         systemConfig.setGasLimit(maximumGasLimit + 1);
     }
+
+    /// @dev Tests that `setEIP1559Params` reverts if the caller is not the owner.
+    function test_setEIP1559Params_notOwner_reverts(uint32 _denominator, uint32 _elasticity) external {
+        vm.expectRevert("Ownable: caller is not the owner");
+        systemConfig.setEIP1559Params({ _denominator: _denominator, _elasticity: _elasticity });
+    }
+
+    /// @dev Tests that `setEIP1559Params` reverts if the denominator is zero.
+    function test_setEIP1559Params_zeroDenominator_reverts(uint32 _elasticity) external {
+        vm.prank(systemConfig.owner());
+        vm.expectRevert("SystemConfig: denominator must be >= 1");
+        systemConfig.setEIP1559Params({ _denominator: 0, _elasticity: _elasticity });
+    }
+
+    /// @dev Tests that `setEIP1559Params` reverts if the elasticity is zero.
+    function test_setEIP1559Params_zeroElasticity_reverts(uint32 _denominator) external {
+        vm.assume(_denominator >= 1);
+        vm.prank(systemConfig.owner());
+        vm.expectRevert("SystemConfig: elasticity must be >= 1");
+        systemConfig.setEIP1559Params({ _denominator: _denominator, _elasticity: 0 });
+    }
 }
 
 contract SystemConfig_Setters_Test is SystemConfig_Init {
     /// @dev Tests that `setBatcherHash` updates the batcher hash successfully.
     function testFuzz_setBatcherHash_succeeds(bytes32 newBatcherHash) external {
         vm.expectEmit(address(systemConfig));
-        emit ConfigUpdate(0, SystemConfig.UpdateType.BATCHER, abi.encode(newBatcherHash));
+        emit ConfigUpdate(0, ISystemConfig.UpdateType.BATCHER, abi.encode(newBatcherHash));
 
         vm.prank(systemConfig.owner());
         systemConfig.setBatcherHash(newBatcherHash);
@@ -545,7 +565,7 @@ contract SystemConfig_Setters_Test is SystemConfig_Init {
         // always zero out most significant byte
         newScalar = (newScalar << 16) >> 16;
         vm.expectEmit(address(systemConfig));
-        emit ConfigUpdate(0, SystemConfig.UpdateType.GAS_CONFIG, abi.encode(newOverhead, newScalar));
+        emit ConfigUpdate(0, ISystemConfig.UpdateType.FEE_SCALARS, abi.encode(newOverhead, newScalar));
 
         vm.prank(systemConfig.owner());
         systemConfig.setGasConfig(newOverhead, newScalar);
@@ -558,7 +578,7 @@ contract SystemConfig_Setters_Test is SystemConfig_Init {
             ffi.encodeScalarEcotone({ _basefeeScalar: _basefeeScalar, _blobbasefeeScalar: _blobbasefeeScalar });
 
         vm.expectEmit(address(systemConfig));
-        emit ConfigUpdate(0, SystemConfig.UpdateType.GAS_CONFIG, abi.encode(systemConfig.overhead(), encoded));
+        emit ConfigUpdate(0, ISystemConfig.UpdateType.FEE_SCALARS, abi.encode(systemConfig.overhead(), encoded));
 
         vm.prank(systemConfig.owner());
         systemConfig.setGasConfigEcotone({ _basefeeScalar: _basefeeScalar, _blobbasefeeScalar: _blobbasefeeScalar });
@@ -578,7 +598,7 @@ contract SystemConfig_Setters_Test is SystemConfig_Init {
         newGasLimit = uint64(bound(uint256(newGasLimit), uint256(minimumGasLimit), uint256(maximumGasLimit)));
 
         vm.expectEmit(address(systemConfig));
-        emit ConfigUpdate(0, SystemConfig.UpdateType.GAS_LIMIT, abi.encode(newGasLimit));
+        emit ConfigUpdate(0, ISystemConfig.UpdateType.GAS_LIMIT, abi.encode(newGasLimit));
 
         vm.prank(systemConfig.owner());
         systemConfig.setGasLimit(newGasLimit);
@@ -588,10 +608,26 @@ contract SystemConfig_Setters_Test is SystemConfig_Init {
     /// @dev Tests that `setUnsafeBlockSigner` updates the block signer successfully.
     function testFuzz_setUnsafeBlockSigner_succeeds(address newUnsafeSigner) external {
         vm.expectEmit(address(systemConfig));
-        emit ConfigUpdate(0, SystemConfig.UpdateType.UNSAFE_BLOCK_SIGNER, abi.encode(newUnsafeSigner));
+        emit ConfigUpdate(0, ISystemConfig.UpdateType.UNSAFE_BLOCK_SIGNER, abi.encode(newUnsafeSigner));
 
         vm.prank(systemConfig.owner());
         systemConfig.setUnsafeBlockSigner(newUnsafeSigner);
         assertEq(systemConfig.unsafeBlockSigner(), newUnsafeSigner);
+    }
+
+    /// @dev Tests that `setEIP1559Params` updates the EIP1559 parameters successfully.
+    function testFuzz_setEIP1559Params_succeeds(uint32 _denominator, uint32 _elasticity) external {
+        vm.assume(_denominator > 1);
+        vm.assume(_elasticity > 1);
+
+        vm.expectEmit(address(systemConfig));
+        emit ConfigUpdate(
+            0, ISystemConfig.UpdateType.EIP_1559_PARAMS, abi.encode(uint256(_denominator) << 32 | uint64(_elasticity))
+        );
+
+        vm.prank(systemConfig.owner());
+        systemConfig.setEIP1559Params(_denominator, _elasticity);
+        assertEq(systemConfig.eip1559Denominator(), _denominator);
+        assertEq(systemConfig.eip1559Elasticity(), _elasticity);
     }
 }
