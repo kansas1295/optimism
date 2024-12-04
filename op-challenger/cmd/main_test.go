@@ -90,9 +90,9 @@ func TestL1Beacon(t *testing.T) {
 
 func TestTraceType(t *testing.T) {
 	t.Run("Default", func(t *testing.T) {
-		expectedDefault := types.TraceTypeCannon
-		cfg := configForArgs(t, addRequiredArgsExcept(expectedDefault, "--trace-type"))
-		require.Equal(t, []types.TraceType{expectedDefault}, cfg.TraceTypes)
+		expectedDefault := []types.TraceType{types.TraceTypeCannon, types.TraceTypeAsteriscKona}
+		cfg := configForArgs(t, addRequiredArgsForMultipleTracesExcept(expectedDefault, "--trace-type"))
+		require.Equal(t, expectedDefault, cfg.TraceTypes)
 	})
 
 	for _, traceType := range types.TraceTypes {
@@ -176,6 +176,13 @@ func TestNetwork(t *testing.T) {
 
 	t.Run("UnknownNetwork", func(t *testing.T) {
 		verifyArgsInvalid(t, "unknown chain: not-a-network", addRequiredArgsExcept(types.TraceTypeAlphabet, "--game-factory-address", "--network=not-a-network"))
+	})
+
+	t.Run("ChainIDAllowedWhenGameFactoryAddressSupplied", func(t *testing.T) {
+		addr := common.Address{0xbb, 0xcc, 0xdd}
+		cfg := configForArgs(t, addRequiredArgsExcept(types.TraceTypeAlphabet, "--game-factory-address", "--network=1234", "--game-factory-address="+addr.Hex()))
+		require.Equal(t, addr, cfg.GameFactoryAddress)
+		require.Equal(t, "1234", cfg.Cannon.Network)
 	})
 }
 
@@ -988,12 +995,28 @@ func addRequiredArgsExcept(traceType types.TraceType, name string, optionalArgs 
 	return append(toArgList(req), optionalArgs...)
 }
 
+func addRequiredArgsForMultipleTracesExcept(traceType []types.TraceType, name string, optionalArgs ...string) []string {
+	req := requiredArgsMultiple(traceType)
+	delete(req, name)
+	return append(toArgList(req), optionalArgs...)
+}
+
 func addRequiredArgsExceptArr(traceType types.TraceType, names []string, optionalArgs ...string) []string {
 	req := requiredArgs(traceType)
 	for _, name := range names {
 		delete(req, name)
 	}
 	return append(toArgList(req), optionalArgs...)
+}
+
+func requiredArgsMultiple(traceType []types.TraceType) map[string]string {
+	args := make(map[string]string)
+	for _, t := range traceType {
+		for name, value := range requiredArgs(t) {
+			args[name] = value
+		}
+	}
+	return args
 }
 
 func requiredArgs(traceType types.TraceType) map[string]string {
@@ -1022,7 +1045,6 @@ func addRequiredCannonArgs(args map[string]string) {
 	args["--cannon-bin"] = cannonBin
 	args["--cannon-server"] = cannonServer
 	args["--cannon-prestate"] = cannonPreState
-	args["--l2-eth-rpc"] = l2EthRpc
 }
 
 func addRequiredAsteriscArgs(args map[string]string) {
@@ -1030,7 +1052,6 @@ func addRequiredAsteriscArgs(args map[string]string) {
 	args["--asterisc-bin"] = asteriscBin
 	args["--asterisc-server"] = asteriscServer
 	args["--asterisc-prestate"] = asteriscPreState
-	args["--l2-eth-rpc"] = l2EthRpc
 }
 
 func addRequiredAsteriscKonaArgs(args map[string]string) {
@@ -1038,7 +1059,6 @@ func addRequiredAsteriscKonaArgs(args map[string]string) {
 	args["--asterisc-bin"] = asteriscBin
 	args["--asterisc-kona-server"] = asteriscServer
 	args["--asterisc-kona-prestate"] = asteriscPreState
-	args["--l2-eth-rpc"] = l2EthRpc
 }
 
 func toArgList(req map[string]string) []string {

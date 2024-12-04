@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.15;
 
-import { ISemver } from "src/universal/interfaces/ISemver.sol";
-import { IPreimageOracle } from "./interfaces/IPreimageOracle.sol";
+// Libraries
 import { MIPSMemory } from "src/cannon/libraries/MIPSMemory.sol";
 import { MIPSSyscalls as sys } from "src/cannon/libraries/MIPSSyscalls.sol";
 import { MIPSState as st } from "src/cannon/libraries/MIPSState.sol";
@@ -11,6 +10,10 @@ import { VMStatuses } from "src/dispute/lib/Types.sol";
 import {
     InvalidMemoryProof, InvalidRMWInstruction, InvalidSecondMemoryProof
 } from "src/cannon/libraries/CannonErrors.sol";
+
+// Interfaces
+import { ISemver } from "src/universal/interfaces/ISemver.sol";
+import { IPreimageOracle } from "src/cannon/interfaces/IPreimageOracle.sol";
 
 /// @title MIPS2
 /// @notice The MIPS2 contract emulates a single MIPS instruction.
@@ -60,8 +63,8 @@ contract MIPS2 is ISemver {
     }
 
     /// @notice The semantic version of the MIPS2 contract.
-    /// @custom:semver 1.0.0-beta.21
-    string public constant version = "1.0.0-beta.21";
+    /// @custom:semver 1.0.0-beta.24
+    string public constant version = "1.0.0-beta.24";
 
     /// @notice The preimage oracle contract.
     IPreimageOracle internal immutable ORACLE;
@@ -102,7 +105,39 @@ contract MIPS2 is ISemver {
     /// the current thread stack.
     /// @param _localContext The local key context for the preimage oracle. Optional, can be set as a constant
     ///                      if the caller only requires one set of local keys.
-    function step(bytes calldata _stateData, bytes calldata _proof, bytes32 _localContext) public returns (bytes32) {
+    /// @return postState_ The hash of the post state witness after the state transition.
+    function step(
+        bytes calldata _stateData,
+        bytes calldata _proof,
+        bytes32 _localContext
+    )
+        public
+        returns (bytes32 postState_)
+    {
+        postState_ = doStep(_stateData, _proof, _localContext);
+        assertPostStateChecks();
+    }
+
+    function assertPostStateChecks() internal pure {
+        State memory state;
+        assembly {
+            state := STATE_MEM_OFFSET
+        }
+
+        bytes32 activeStack = state.traverseRight ? state.rightThreadStack : state.leftThreadStack;
+        if (activeStack == EMPTY_THREAD_ROOT) {
+            revert("MIPS2: post-state active thread stack is empty");
+        }
+    }
+
+    function doStep(
+        bytes calldata _stateData,
+        bytes calldata _proof,
+        bytes32 _localContext
+    )
+        internal
+        returns (bytes32)
+    {
         unchecked {
             State memory state;
             ThreadState memory thread;
@@ -427,7 +462,7 @@ contract MIPS2 is ISemver {
                 // Encapsulate execution to avoid stack-too-deep error
                 (v0, v1) = execSysRead(state, args);
             } else if (syscall_no == sys.SYS_WRITE) {
-                (v0, v1, state.preimageKey, state.preimageOffset) = sys.handleSysWrite({
+                sys.SysWriteParams memory args = sys.SysWriteParams({
                     _a0: a0,
                     _a1: a1,
                     _a2: a2,
@@ -436,6 +471,7 @@ contract MIPS2 is ISemver {
                     _proofOffset: MIPSMemory.memoryProofOffset(MEM_PROOF_OFFSET, 1),
                     _memRoot: state.memRoot
                 });
+                (v0, v1, state.preimageKey, state.preimageOffset) = sys.handleSysWrite(args);
             } else if (syscall_no == sys.SYS_FCNTL) {
                 (v0, v1) = sys.handleSysFcntl(a0, a1);
             } else if (syscall_no == sys.SYS_GETTID) {

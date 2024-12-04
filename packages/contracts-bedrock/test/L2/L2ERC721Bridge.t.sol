@@ -2,7 +2,7 @@
 pragma solidity 0.8.15;
 
 // Testing
-import { Bridge_Initializer } from "test/setup/Bridge_Initializer.sol";
+import { CommonTest } from "test/setup/CommonTest.sol";
 
 // Contracts
 import { ERC721 } from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -33,7 +33,7 @@ contract TestMintableERC721 is OptimismMintableERC721 {
     }
 }
 
-contract L2ERC721Bridge_Test is Bridge_Initializer {
+contract L2ERC721Bridge_Test is CommonTest {
     TestMintableERC721 internal localToken;
     TestERC721 internal remoteToken;
     uint256 internal constant tokenId = 1;
@@ -225,6 +225,14 @@ contract L2ERC721Bridge_Test is Bridge_Initializer {
 
         // Token is not locked in the bridge.
         assertEq(localToken.ownerOf(tokenId), alice);
+    }
+
+    /// @dev Tests that `bridgeERC721To` reverts if the to address is the zero address.
+    function test_bridgeERC721To_toZeroAddress_reverts() external {
+        // Bridge the token.
+        vm.prank(bob);
+        vm.expectRevert("ERC721Bridge: nft recipient cannot be address(0)");
+        l2ERC721Bridge.bridgeERC721To(address(localToken), address(remoteToken), address(0), tokenId, 1234, hex"5678");
     }
 
     /// @dev Tests that `finalizeBridgeERC721` correctly finalizes a bridged token.

@@ -4,7 +4,7 @@ pragma solidity 0.8.15;
 // Testing
 import { stdStorage, StdStorage } from "forge-std/Test.sol";
 import { EIP1967Helper } from "test/mocks/EIP1967Helper.sol";
-import { Bridge_Initializer } from "test/setup/Bridge_Initializer.sol";
+import { CommonTest } from "test/setup/CommonTest.sol";
 
 // Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -21,7 +21,7 @@ import { IStandardBridge } from "src/universal/interfaces/IStandardBridge.sol";
 import { IL2ToL1MessagePasser } from "src/L2/interfaces/IL2ToL1MessagePasser.sol";
 import { IL2StandardBridge } from "src/L2/interfaces/IL2StandardBridge.sol";
 
-contract L2StandardBridge_Test is Bridge_Initializer {
+contract L2StandardBridge_Test is CommonTest {
     using stdStorage for StdStorage;
 
     /// @dev Test that the bridge's constructor sets the correct values.
@@ -34,6 +34,7 @@ contract L2StandardBridge_Test is Bridge_Initializer {
         assertEq(address(impl.messenger()), Predeploys.L2_CROSS_DOMAIN_MESSENGER, "constructor zero check messenger");
         assertEq(address(impl.OTHER_BRIDGE()), address(0), "constructor zero check OTHER_BRIDGE");
         assertEq(address(impl.otherBridge()), address(0), "constructor zero check otherBridge");
+        assertEq(address(impl.l1TokenBridge()), address(0), "constructor zero check l1TokenBridge");
     }
 
     /// @dev Tests that the bridge is initialized correctly.
@@ -275,7 +276,7 @@ contract L2StandardBridge_Test is Bridge_Initializer {
     }
 }
 
-contract PreBridgeERC20 is Bridge_Initializer {
+contract PreBridgeERC20 is CommonTest {
     /// @dev Sets up expected calls and emits for a successful ERC20 withdrawal.
     function _preBridgeERC20(bool _isLegacy, address _l2Token) internal {
         // Alice has 100 L2Token
@@ -378,6 +379,12 @@ contract L2StandardBridge_BridgeERC20_Test is PreBridgeERC20 {
         assertEq(L2Token.balanceOf(alice), 0);
     }
 
+    function test_bridgeERC20_isNotCorrectTokenPair_reverts() external {
+        vm.expectRevert("StandardBridge: wrong remote token for Optimism Mintable ERC20 local token");
+        vm.prank(alice, alice);
+        l2StandardBridge.bridgeERC20(address(L2Token), address(BadL1Token), 100, 1000, hex"");
+    }
+
     function test_withdrawLegacyERC20_succeeds() external {
         _preBridgeERC20({ _isLegacy: true, _l2Token: address(LegacyL2Token) });
         l2StandardBridge.withdraw(address(LegacyL2Token), 100, 1000, hex"");
@@ -401,7 +408,7 @@ contract L2StandardBridge_BridgeERC20_Test is PreBridgeERC20 {
     }
 }
 
-contract PreBridgeERC20To is Bridge_Initializer {
+contract PreBridgeERC20To is CommonTest {
     // withdrawTo and BridgeERC20To should behave the same when transferring ERC20 tokens
     // so they should share the same setup and expectEmit calls
     function _preBridgeERC20To(bool _isLegacy, address _l2Token) internal {
@@ -501,7 +508,7 @@ contract L2StandardBridge_BridgeERC20To_Test is PreBridgeERC20To {
     }
 }
 
-contract L2StandardBridge_Bridge_Test is Bridge_Initializer {
+contract L2StandardBridge_Bridge_Test is CommonTest {
     /// @dev Tests that `finalizeBridgeETH` reverts if the recipient is the other bridge.
     function test_finalizeBridgeETH_sendToSelf_reverts() external {
         vm.mockCall(
@@ -622,7 +629,7 @@ contract L2StandardBridge_Bridge_Test is Bridge_Initializer {
     }
 }
 
-contract L2StandardBridge_FinalizeBridgeETH_Test is Bridge_Initializer {
+contract L2StandardBridge_FinalizeBridgeETH_Test is CommonTest {
     /// @dev Tests that `finalizeBridgeETH` succeeds.
     function test_finalizeBridgeETH_succeeds() external {
         address messenger = address(l2StandardBridge.messenger());
@@ -657,5 +664,45 @@ contract L2StandardBridge_FinalizeBridgeETH_Test is Bridge_Initializer {
         vm.expectRevert("StandardBridge: cannot bridge ETH with custom gas token");
 
         l2StandardBridge.finalizeBridgeETH(alice, alice, 1, hex"");
+    }
+}
+
+contract L2StandardBridge_FinalizeBridgeERC20_Test is CommonTest {
+    /// @dev Tests that `finalizeBridgeERC20` succeeds.
+    function test_finalizeBridgeERC20_succeeds() external {
+        address messenger = address(l2StandardBridge.messenger());
+        address localToken = address(L2Token);
+        address remoteToken = address(L1Token);
+        vm.mockCall(
+            messenger,
+            abi.encodeCall(ICrossDomainMessenger.xDomainMessageSender, ()),
+            abi.encode(address(l2StandardBridge.OTHER_BRIDGE()))
+        );
+        deal(localToken, messenger, 100, true);
+        vm.prank(messenger);
+
+        vm.expectEmit(true, true, true, true);
+        emit DepositFinalized(remoteToken, localToken, alice, alice, 100, hex"");
+
+        vm.expectEmit(true, true, true, true);
+        emit ERC20BridgeFinalized(localToken, remoteToken, alice, alice, 100, hex"");
+
+        l2StandardBridge.finalizeBridgeERC20(localToken, remoteToken, alice, alice, 100, hex"");
+    }
+
+    function test_finalizeBridgeERC20_isNotCorrectTokenPair_reverts() external {
+        address messenger = address(l2StandardBridge.messenger());
+        address localToken = address(L2Token);
+        address remoteToken = address(BadL1Token);
+        vm.mockCall(
+            messenger,
+            abi.encodeCall(ICrossDomainMessenger.xDomainMessageSender, ()),
+            abi.encode(address(l2StandardBridge.OTHER_BRIDGE()))
+        );
+        deal(localToken, messenger, 100, true);
+        vm.prank(messenger);
+
+        vm.expectRevert("StandardBridge: wrong remote token for Optimism Mintable ERC20 local token");
+        l2StandardBridge.finalizeBridgeERC20(localToken, remoteToken, alice, alice, 100, hex"");
     }
 }

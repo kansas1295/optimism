@@ -6,7 +6,6 @@ import { CommonTest } from "test/setup/CommonTest.sol";
 
 // Contracts
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { ConfigType } from "src/L2/L1BlockInterop.sol";
 
 // Libraries
 import { Constants } from "src/libraries/Constants.sol";
@@ -17,6 +16,7 @@ import { GasPayingToken } from "src/libraries/GasPayingToken.sol";
 import { ISystemConfig } from "src/L1/interfaces/ISystemConfig.sol";
 import { ISystemConfigInterop } from "src/L1/interfaces/ISystemConfigInterop.sol";
 import { IOptimismPortalInterop } from "src/L1/interfaces/IOptimismPortalInterop.sol";
+import { ConfigType } from "src/L2/interfaces/IL1BlockInterop.sol";
 
 contract SystemConfigInterop_Test is CommonTest {
     /// @notice Marked virtual to be overridden in
@@ -24,6 +24,19 @@ contract SystemConfigInterop_Test is CommonTest {
     function setUp() public virtual override {
         super.enableInterop();
         super.setUp();
+    }
+
+    /// @dev Tests that when the decimals is not 18, initialization reverts.
+    function test_initialize_decimalsIsNot18_reverts(uint8 decimals) external {
+        vm.assume(decimals != 18);
+        address _token = address(L1Token);
+
+        vm.mockCall(_token, abi.encodeCall(ERC20.name, ()), abi.encode("Token"));
+        vm.mockCall(_token, abi.encodeCall(ERC20.symbol, ()), abi.encode("TKN"));
+        vm.mockCall(_token, abi.encodeCall(ERC20.decimals, ()), abi.encode(decimals));
+
+        vm.expectRevert("SystemConfig: bad decimals of gas paying token");
+        _cleanStorageAndInit(_token);
     }
 
     /// @dev Tests that the gas paying token can be set.

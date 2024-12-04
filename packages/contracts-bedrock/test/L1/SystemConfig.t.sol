@@ -255,6 +255,19 @@ contract SystemConfig_Init_ResourceConfig is SystemConfig_Init {
         _initializeWithResourceConfig(config, "SystemConfig: gas limit too low");
     }
 
+    /// @dev Tests that `setResourceConfig` reverts if the gas limit is too low.
+    function test_setResourceConfig_elasticityMultiplierIs0_reverts() external {
+        IResourceMetering.ResourceConfig memory config = IResourceMetering.ResourceConfig({
+            maxResourceLimit: 20_000_000,
+            elasticityMultiplier: 0,
+            baseFeeMaxChangeDenominator: 8,
+            systemTxMaxGas: 1_000_000,
+            minimumBaseFee: 1 gwei,
+            maximumBaseFee: 2 gwei
+        });
+        _initializeWithResourceConfig(config, "SystemConfig: elasticity multiplier cannot be 0");
+    }
+
     /// @dev Tests that `setResourceConfig` reverts if the elasticity multiplier
     ///      and max resource limit are configured such that there is a loss of precision.
     function test_setResourceConfig_badPrecision_reverts() external {
@@ -396,7 +409,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
     }
 
     /// @dev Tests that initialization sets the correct values and getters work when token address passed is 0.
-    function test_initialize_customGasToken_zeroTokenAddress_succeeds() external {
+    function test_initialize_customGasTokenWithZeroTokenAddress_succeeds() external {
         cleanStorageAndInit(address(0));
 
         (address addr, uint8 decimals) = systemConfig.gasPayingToken();
@@ -408,7 +421,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
     }
 
     /// @dev Tests that initialization sets the correct values and getters work when token address is Constants.ETHER
-    function test_initialize_customGasToken_etherTokenAddress_succeeds() external {
+    function test_initialize_customGasTokenWithEtherTokenAddress_succeeds() external {
         cleanStorageAndInit(Constants.ETHER);
 
         (address addr, uint8 decimals) = systemConfig.gasPayingToken();
@@ -420,7 +433,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
     }
 
     /// @dev Tests that initialization fails if decimals are not 18.
-    function test_initialize_customGasToken_wrongDecimals_fails() external {
+    function test_initialize_customGasTokenWrongDecimals_fails() external {
         vm.mockCall(address(token), abi.encodeCall(token.decimals, ()), abi.encode(8));
         vm.expectRevert("SystemConfig: bad decimals of gas paying token");
 
@@ -428,7 +441,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
     }
 
     /// @dev Tests that initialization fails if name is too long.
-    function test_initialize_customGasToken_nameTooLong_fails() external {
+    function test_initialize_customGasTokenNameTooLong_fails() external {
         string memory name = new string(32);
         name = string.concat(name, "a");
 
@@ -439,7 +452,7 @@ contract SystemConfig_Init_CustomGasToken is SystemConfig_Init {
     }
 
     /// @dev Tests that initialization fails if symbol is too long.
-    function test_initialize_customGasToken_symbolTooLong_fails() external {
+    function test_initialize_customGasTokenSymbolTooLong_fails() external {
         string memory symbol = new string(33);
         symbol = string.concat(symbol, "a");
 

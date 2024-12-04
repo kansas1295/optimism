@@ -8,6 +8,10 @@ import (
 	"math/big"
 	"strings"
 
+	artifacts2 "github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/artifacts"
+
+	"github.com/ethereum-optimism/optimism/op-deployer/pkg/env"
+
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/standard"
 
 	"github.com/ethereum-optimism/optimism/op-deployer/pkg/deployer/broadcaster"
@@ -35,7 +39,7 @@ type OPCMConfig struct {
 	L1RPCUrl         string
 	PrivateKey       string
 	Logger           log.Logger
-	ArtifactsLocator *opcm.ArtifactsLocator
+	ArtifactsLocator *artifacts2.Locator
 
 	privateKeyECDSA *ecdsa.PrivateKey
 }
@@ -98,7 +102,7 @@ func OPCMCLI(cliCtx *cli.Context) error {
 	l1RPCUrl := cliCtx.String(deployer.L1RPCURLFlagName)
 	privateKey := cliCtx.String(deployer.PrivateKeyFlagName)
 	artifactsURLStr := cliCtx.String(ArtifactsLocatorFlagName)
-	artifactsLocator := new(opcm.ArtifactsLocator)
+	artifactsLocator := new(artifacts2.Locator)
 	if err := artifactsLocator.UnmarshalText([]byte(artifactsURLStr)); err != nil {
 		return fmt.Errorf("failed to parse artifacts URL: %w", err)
 	}
@@ -131,7 +135,7 @@ func OPCM(ctx context.Context, cfg OPCMConfig) error {
 		lgr.Info("artifacts download progress", "current", curr, "total", total)
 	}
 
-	artifactsFS, cleanup, err := pipeline.DownloadArtifacts(ctx, cfg.ArtifactsLocator, progressor)
+	artifactsFS, cleanup, err := artifacts2.Download(ctx, cfg.ArtifactsLocator, progressor)
 	if err != nil {
 		return fmt.Errorf("failed to download artifacts: %w", err)
 	}
@@ -160,10 +164,6 @@ func OPCM(ctx context.Context, cfg OPCMConfig) error {
 	if err != nil {
 		return fmt.Errorf("error getting standard versions TOML: %w", err)
 	}
-	opcmProxyOwnerAddr, err := standard.ManagerOwnerAddrFor(chainIDU64)
-	if err != nil {
-		return fmt.Errorf("error getting superchain proxy admin: %w", err)
-	}
 
 	signer := opcrypto.SignerFnFromBind(opcrypto.PrivateKeySignerFn(cfg.privateKeyECDSA, chainID))
 	chainDeployer := crypto.PubkeyToAddress(cfg.privateKeyECDSA.PublicKey)
@@ -184,25 +184,25 @@ func OPCM(ctx context.Context, cfg OPCMConfig) error {
 		return fmt.Errorf("failed to get starting nonce: %w", err)
 	}
 
-	host, err := pipeline.DefaultScriptHost(
+	host, err := env.DefaultScriptHost(
 		bcaster,
 		lgr,
 		chainDeployer,
 		artifactsFS,
-		nonce,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create script host: %w", err)
 	}
+	host.SetNonce(chainDeployer, nonce)
 
-	var release string
+	var l1ContractsRelease string
 	if cfg.ArtifactsLocator.IsTag() {
-		release = cfg.ArtifactsLocator.Tag
+		l1ContractsRelease = cfg.ArtifactsLocator.Tag
 	} else {
-		release = "dev"
+		l1ContractsRelease = "dev"
 	}
 
-	lgr.Info("deploying OPCM", "release", release)
+	lgr.Info("deploying OPCM", "l1ContractsRelease", l1ContractsRelease)
 
 	// We need to etch the Superchain addresses so that they have nonzero code
 	// and the checks in the OPCM constructor pass.
@@ -234,10 +234,9 @@ func OPCM(ctx context.Context, cfg OPCMConfig) error {
 			ProofMaturityDelaySeconds:       new(big.Int).SetUint64(cfg.ProofMaturityDelaySeconds),
 			DisputeGameFinalityDelaySeconds: new(big.Int).SetUint64(cfg.DisputeGameFinalityDelaySeconds),
 			MipsVersion:                     new(big.Int).SetUint64(cfg.MIPSVersion),
-			Release:                         release,
+			L1ContractsRelease:              l1ContractsRelease,
 			SuperchainConfigProxy:           superchainConfigAddr,
 			ProtocolVersionsProxy:           protocolVersionsAddr,
-			OpcmProxyOwner:                  opcmProxyOwnerAddr,
 			StandardVersionsToml:            standardVersionsTOML,
 			UseInterop:                      false,
 		},

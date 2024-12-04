@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.15;
+pragma solidity ^0.8.0;
 
-import "src/cannon/libraries/CannonErrors.sol";
+// Libraries
+import { InvalidMemoryProof } from "src/cannon/libraries/CannonErrors.sol";
 
 library MIPS64Memory {
     uint64 internal constant EXT_MASK = 0x7;

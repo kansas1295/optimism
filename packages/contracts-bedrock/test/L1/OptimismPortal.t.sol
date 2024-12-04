@@ -201,7 +201,6 @@ contract OptimismPortal_Test is CommonTest {
     }
 
     /// @dev Tests that `depositTransaction` succeeds when msg.sender == tx.origin and non-custom gas is used.
-    /// forge-config: ciheavy.fuzz.runs = 8192
     function testFuzz_depositTransaction_senderIsOrigin_succeeds(
         address _to,
         uint256 _mint,
@@ -227,7 +226,6 @@ contract OptimismPortal_Test is CommonTest {
     }
 
     /// @dev Tests that `depositTransaction` succeeds when msg.sender != tx.origin and non-custom gas is used.
-    /// forge-config: ciheavy.fuzz.runs = 8192
     function testFuzz_depositTransaction_senderNotOrigin_succeeds(
         address _to,
         uint256 _mint,
@@ -310,7 +308,6 @@ contract OptimismPortal_Test is CommonTest {
     }
 
     /// @dev Tests that `depositTransaction` succeeds for an EOA.
-    /// forge-config: ciheavy.fuzz.runs = 8192
     function testFuzz_depositTransaction_eoa_succeeds(
         address _to,
         uint64 _gasLimit,
@@ -355,7 +352,6 @@ contract OptimismPortal_Test is CommonTest {
     }
 
     /// @dev Tests that `depositTransaction` succeeds for a contract.
-    /// forge-config: ciheavy.fuzz.runs = 8192
     function testFuzz_depositTransaction_contract_succeeds(
         address _to,
         uint64 _gasLimit,
@@ -598,7 +594,6 @@ contract OptimismPortal_FinalizeWithdrawal_Test is CommonTest {
         // Get withdrawal proof data we can use for testing.
         (_stateRoot, _storageRoot, _outputRoot, _withdrawalHash, _withdrawalProof) =
             ffi.getProveWithdrawalTransactionInputs(_defaultTx);
-
         // Setup a dummy output root proof for reuse.
         _outputRootProof = Types.OutputRootProof({
             version: bytes32(uint256(0)),
@@ -606,6 +601,7 @@ contract OptimismPortal_FinalizeWithdrawal_Test is CommonTest {
             messagePasserStorageRoot: _storageRoot,
             latestBlockhash: bytes32(uint256(0))
         });
+
         _proposedBlockNumber = l2OutputOracle.nextBlockNumber();
         _proposedOutputIndex = l2OutputOracle.nextOutputIndex();
     }
@@ -773,7 +769,7 @@ contract OptimismPortal_FinalizeWithdrawal_Test is CommonTest {
     }
 
     /// @dev Tests that `finalizeWithdrawalTransaction` succeeds.
-    function test_finalizeWithdrawalTransaction_provenWithdrawalHash_ether_succeeds() external {
+    function test_finalizeWithdrawalTransaction_provenWithdrawalHashEther_succeeds() external {
         uint256 bobBalanceBefore = address(bob).balance;
 
         vm.expectEmit(true, true, true, true);
@@ -789,7 +785,7 @@ contract OptimismPortal_FinalizeWithdrawal_Test is CommonTest {
     }
 
     /// @dev Tests that `finalizeWithdrawalTransaction` succeeds.
-    function test_finalizeWithdrawalTransaction_provenWithdrawalHash_nonEther_targetToken_reverts() external {
+    function test_finalizeWithdrawalTransaction_provenWithdrawalHashNonEtherTargetToken_reverts() external {
         vm.mockCall(
             address(systemConfig),
             abi.encodeCall(systemConfig.gasPayingToken, ()),
@@ -934,7 +930,7 @@ contract OptimismPortal_FinalizeWithdrawal_Test is CommonTest {
         assertEq(bobBalanceBefore, address(bob).balance);
     }
 
-    /// @dev Tests that `finalizeWithdrawalTransaction` reverts if the target reverts.
+    /// @dev Tests that `finalizeWithdrawalTransaction` fails if the target reverts.
     function test_finalizeWithdrawalTransaction_targetFails_fails() external {
         uint256 bobBalanceBefore = address(bob).balance;
         vm.etch(bob, hex"fe"); // Contract with just the invalid opcode.
@@ -949,6 +945,142 @@ contract OptimismPortal_FinalizeWithdrawal_Test is CommonTest {
         optimismPortal.finalizeWithdrawalTransaction(_defaultTx);
 
         assert(address(bob).balance == bobBalanceBefore);
+    }
+
+    /// @dev Tests that `finalizeWithdrawalTransaction` reverts if the target reverts and caller is the
+    /// ESTIMATION_ADDRESS.
+    function test_finalizeWithdrawalTransaction_targetFailsAndCallerIsEstimationAddress_reverts() external {
+        vm.etch(bob, hex"fe"); // Contract with just the invalid opcode.
+
+        vm.expectEmit(true, true, true, true);
+        emit WithdrawalProven(_withdrawalHash, alice, bob);
+        optimismPortal.proveWithdrawalTransaction(_defaultTx, _proposedOutputIndex, _outputRootProof, _withdrawalProof);
+
+        vm.warp(block.timestamp + l2OutputOracle.FINALIZATION_PERIOD_SECONDS() + 1);
+
+        vm.startPrank(Constants.ESTIMATION_ADDRESS, Constants.ESTIMATION_ADDRESS);
+        vm.expectRevert(GasEstimation.selector);
+        optimismPortal.finalizeWithdrawalTransaction(_defaultTx);
+    }
+
+    /// @dev Tests that `finalizeWithdrawalTransaction` succeeds when _tx.data is empty.
+    function test_finalizeWithdrawalTransaction_noTxData_succeeds() external {
+        Types.WithdrawalTransaction memory _defaultTx_noData = Types.WithdrawalTransaction({
+            nonce: 0,
+            sender: alice,
+            target: bob,
+            value: 100,
+            gasLimit: 100_000,
+            data: hex""
+        });
+        // Get withdrawal proof data we can use for testing.
+        (
+            bytes32 _stateRoot_noData,
+            bytes32 _storageRoot_noData,
+            bytes32 _outputRoot_noData,
+            bytes32 _withdrawalHash_noData,
+            bytes[] memory _withdrawalProof_noData
+        ) = ffi.getProveWithdrawalTransactionInputs(_defaultTx_noData);
+        // Setup a dummy output root proof for reuse.
+        Types.OutputRootProof memory _outputRootProof_noData = Types.OutputRootProof({
+            version: bytes32(uint256(0)),
+            stateRoot: _stateRoot_noData,
+            messagePasserStorageRoot: _storageRoot_noData,
+            latestBlockhash: bytes32(uint256(0))
+        });
+
+        // Configure the oracle to return the output root we've prepared.
+        vm.mockCall(
+            address(l2OutputOracle),
+            abi.encodePacked(IL2OutputOracle.getL2Output.selector),
+            abi.encode(
+                Types.OutputProposal(
+                    _outputRoot_noData,
+                    l2OutputOracle.getL2Output(_proposedOutputIndex).timestamp,
+                    uint128(_proposedBlockNumber)
+                )
+            )
+        );
+
+        // Fund the portal so that we can withdraw ETH.
+        vm.store(address(optimismPortal), bytes32(uint256(61)), bytes32(uint256(0xFFFFFFFF)));
+        vm.deal(address(optimismPortal), 0xFFFFFFFF);
+        uint256 bobBalanceBefore = bob.balance;
+
+        vm.expectEmit(true, true, true, true);
+        emit WithdrawalProven(_withdrawalHash_noData, alice, bob);
+        optimismPortal.proveWithdrawalTransaction(
+            _defaultTx_noData, _proposedOutputIndex, _outputRootProof_noData, _withdrawalProof_noData
+        );
+
+        vm.warp(block.timestamp + l2OutputOracle.FINALIZATION_PERIOD_SECONDS() + 1);
+        vm.expectEmit(true, true, false, true);
+        emit WithdrawalFinalized(_withdrawalHash_noData, true);
+        optimismPortal.finalizeWithdrawalTransaction(_defaultTx_noData);
+
+        assertEq(bob.balance, bobBalanceBefore + 100);
+    }
+
+    /// @dev Tests that `finalizeWithdrawalTransaction` succeeds when _tx.data is empty and with a custom gas token.
+    function test_finalizeWithdrawalTransaction_noTxDataNonEtherGasToken_succeeds() external {
+        Types.WithdrawalTransaction memory _defaultTx_noData = Types.WithdrawalTransaction({
+            nonce: 0,
+            sender: alice,
+            target: bob,
+            value: 100,
+            gasLimit: 100_000,
+            data: hex""
+        });
+        // Get withdrawal proof data we can use for testing.
+        (
+            bytes32 _stateRoot_noData,
+            bytes32 _storageRoot_noData,
+            bytes32 _outputRoot_noData,
+            bytes32 _withdrawalHash_noData,
+            bytes[] memory _withdrawalProof_noData
+        ) = ffi.getProveWithdrawalTransactionInputs(_defaultTx_noData);
+        // Setup a dummy output root proof for reuse.
+        Types.OutputRootProof memory _outputRootProof_noData = Types.OutputRootProof({
+            version: bytes32(uint256(0)),
+            stateRoot: _stateRoot_noData,
+            messagePasserStorageRoot: _storageRoot_noData,
+            latestBlockhash: bytes32(uint256(0))
+        });
+
+        // Configure the oracle to return the output root we've prepared.
+        vm.mockCall(
+            address(l2OutputOracle),
+            abi.encodePacked(IL2OutputOracle.getL2Output.selector),
+            abi.encode(
+                Types.OutputProposal(
+                    _outputRoot_noData,
+                    l2OutputOracle.getL2Output(_proposedOutputIndex).timestamp,
+                    uint128(_proposedBlockNumber)
+                )
+            )
+        );
+
+        // Fund the portal so that we can withdraw ETH.
+        vm.store(address(optimismPortal), bytes32(uint256(61)), bytes32(uint256(0xFFFFFFFF)));
+        deal(address(L1Token), address(optimismPortal), 0xFFFFFFFF);
+        // modify the gas token to be non ether
+        vm.mockCall(
+            address(systemConfig), abi.encodeCall(systemConfig.gasPayingToken, ()), abi.encode(address(L1Token), 18)
+        );
+        uint256 bobBalanceBefore = L1Token.balanceOf(bob);
+
+        vm.expectEmit(true, true, true, true);
+        emit WithdrawalProven(_withdrawalHash_noData, alice, bob);
+        optimismPortal.proveWithdrawalTransaction(
+            _defaultTx_noData, _proposedOutputIndex, _outputRootProof_noData, _withdrawalProof_noData
+        );
+
+        vm.warp(block.timestamp + l2OutputOracle.FINALIZATION_PERIOD_SECONDS() + 1);
+        vm.expectEmit(true, true, false, true);
+        emit WithdrawalFinalized(_withdrawalHash_noData, true);
+        optimismPortal.finalizeWithdrawalTransaction(_defaultTx_noData);
+
+        assertEq(L1Token.balanceOf(bob), bobBalanceBefore + 100);
     }
 
     /// @dev Tests that `finalizeWithdrawalTransaction` reverts if the finalization period
@@ -1078,7 +1210,6 @@ contract OptimismPortal_FinalizeWithdrawal_Test is CommonTest {
     }
 
     /// @dev Tests that `finalizeWithdrawalTransaction` succeeds.
-    /// forge-config: ciheavy.fuzz.runs = 8192
     function testDiff_finalizeWithdrawalTransaction_succeeds(
         address _sender,
         address _target,
@@ -1201,7 +1332,6 @@ contract OptimismPortalResourceFuzz_Test is CommonTest {
     uint256 constant MAX_GAS_LIMIT = 30_000_000;
 
     /// @dev Test that various values of the resource metering config will not break deposits.
-    /// forge-config: ciheavy.fuzz.runs = 10000
     function testFuzz_systemConfigDeposit_succeeds(
         uint32 _maxResourceLimit,
         uint8 _elasticityMultiplier,
@@ -1220,8 +1350,13 @@ contract OptimismPortalResourceFuzz_Test is CommonTest {
         uint64 gasLimit = systemConfig.gasLimit();
 
         // Bound resource config
+        _systemTxMaxGas = uint32(bound(_systemTxMaxGas, 0, gasLimit - 21000));
         _maxResourceLimit = uint32(bound(_maxResourceLimit, 21000, MAX_GAS_LIMIT / 8));
+        _maxResourceLimit = uint32(bound(_maxResourceLimit, 21000, gasLimit - _systemTxMaxGas));
+        _maximumBaseFee = uint128(bound(_maximumBaseFee, 1, type(uint128).max));
+        _minimumBaseFee = uint32(bound(_minimumBaseFee, 0, _maximumBaseFee - 1));
         _gasLimit = uint64(bound(_gasLimit, 21000, _maxResourceLimit));
+        _gasLimit = uint64(bound(_gasLimit, 0, gasLimit));
         _prevBaseFee = uint128(bound(_prevBaseFee, 0, 3 gwei));
         _prevBoughtGas = uint64(bound(_prevBoughtGas, 0, _maxResourceLimit - _gasLimit));
         _blockDiff = uint8(bound(_blockDiff, 0, 3));
@@ -1229,10 +1364,15 @@ contract OptimismPortalResourceFuzz_Test is CommonTest {
         _elasticityMultiplier = uint8(bound(_elasticityMultiplier, 1, type(uint8).max));
 
         // Prevent values that would cause reverts
-        vm.assume(gasLimit >= _gasLimit);
-        vm.assume(_minimumBaseFee < _maximumBaseFee);
         vm.assume(uint256(_maxResourceLimit) + uint256(_systemTxMaxGas) <= gasLimit);
         vm.assume(((_maxResourceLimit / _elasticityMultiplier) * _elasticityMultiplier) == _maxResourceLimit);
+
+        // Although we typically want to limit the usage of vm.assume, we've constructed the above
+        // bounds to satisfy the assumptions listed in this specific section. These assumptions
+        // serve only to act as an additional sanity check on top of the bounds and should not
+        // result in an unnecessary number of test rejections.
+        vm.assume(gasLimit >= _gasLimit);
+        vm.assume(_minimumBaseFee < _maximumBaseFee);
 
         // Base fee can increase quickly and mean that we can't buy the amount of gas we want.
         // Here we add a VM assumption to bound the potential increase.
@@ -1336,7 +1476,6 @@ contract OptimismPortalWithMockERC20_Test is OptimismPortal_FinalizeWithdrawal_T
     }
 
     /// @dev Tests that `depositERC20Transaction` succeeds when msg.sender == tx.origin.
-    /// forge-config: ciheavy.fuzz.runs = 8192
     function testFuzz_depositERC20Transaction_senderIsOrigin_succeeds(
         address _to,
         uint256 _mint,
@@ -1362,7 +1501,6 @@ contract OptimismPortalWithMockERC20_Test is OptimismPortal_FinalizeWithdrawal_T
     }
 
     /// @dev Tests that `depositERC20Transaction` succeeds when msg.sender != tx.origin.
-    /// forge-config: ciheavy.fuzz.runs = 8192
     function testFuzz_depositERC20Transaction_senderNotOrigin_succeeds(
         address _to,
         uint256 _mint,
@@ -1483,7 +1621,7 @@ contract OptimismPortalWithMockERC20_Test is OptimismPortal_FinalizeWithdrawal_T
     }
 
     /// @dev Tests that `finalizeWithdrawalTransaction` succeeds.
-    function test_finalizeWithdrawalTransaction_provenWithdrawalHash_nonEther_succeeds() external {
+    function test_finalizeWithdrawalTransaction_provenWithdrawalHashNonEther_succeeds() external {
         // Mint the token to the contract and approve the token for the portal
         token.mint(address(this), _defaultTx.value);
         token.approve(address(optimismPortal), _defaultTx.value);
@@ -1561,8 +1699,7 @@ contract OptimismPortalWithMockERC20_Test is OptimismPortal_FinalizeWithdrawal_T
     }
 
     /// @dev Tests that `depositTransaction` succeeds when a custom gas token is used but the msg.value is zero.
-    /// forge-config: ciheavy.fuzz.runs = 8192
-    function testFuzz_depositTransaction_customGasToken_noValue_senderIsOrigin_succeeds(
+    function testFuzz_depositTransaction_customGasTokenWithNoValueAndSenderIsOrigin_succeeds(
         address _to,
         uint256 _value,
         uint64 _gasLimit,
@@ -1585,8 +1722,7 @@ contract OptimismPortalWithMockERC20_Test is OptimismPortal_FinalizeWithdrawal_T
     }
 
     /// @dev Tests that `depositTransaction` succeeds when a custom gas token is used but the msg.value is zero.
-    /// forge-config: ciheavy.fuzz.runs = 8192
-    function testFuzz_depositTransaction_customGasToken_noValue_senderNotOrigin_succeeds(
+    function testFuzz_depositTransaction_customGasTokenWithNoValueAndSenderNotOrigin_succeeds(
         address _to,
         uint256 _value,
         uint64 _gasLimit,
@@ -1609,7 +1745,7 @@ contract OptimismPortalWithMockERC20_Test is OptimismPortal_FinalizeWithdrawal_T
     }
 
     /// @dev Tests that `depositTransaction` fails when a custom gas token is used and msg.value is non-zero.
-    function test_depositTransaction_customGasToken_withValue_reverts() external {
+    function test_depositTransaction_customGasTokenWithValue_reverts() external {
         // Mock the gas paying token to be the ERC20 token
         vm.mockCall(
             address(systemConfig), abi.encodeCall(systemConfig.gasPayingToken, ()), abi.encode(address(token), 18)

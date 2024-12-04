@@ -170,10 +170,9 @@ func DeploySuperchainToL1(l1Host *script.Host, superCfg *SuperchainConfig) (*Sup
 		ProofMaturityDelaySeconds:       superCfg.Implementations.FaultProof.ProofMaturityDelaySeconds,
 		DisputeGameFinalityDelaySeconds: superCfg.Implementations.FaultProof.DisputeGameFinalityDelaySeconds,
 		MipsVersion:                     superCfg.Implementations.FaultProof.MipsVersion,
-		Release:                         superCfg.Implementations.Release,
+		L1ContractsRelease:              superCfg.Implementations.L1ContractsRelease,
 		SuperchainConfigProxy:           superDeployment.SuperchainConfigProxy,
 		ProtocolVersionsProxy:           superDeployment.ProtocolVersionsProxy,
-		OpcmProxyOwner:                  superDeployment.SuperchainProxyAdmin,
 		UseInterop:                      superCfg.Implementations.UseInterop,
 		StandardVersionsToml:            standard.VersionsMainnetData,
 	})
@@ -200,7 +199,7 @@ func DeployL2ToL1(l1Host *script.Host, superCfg *SuperchainConfig, superDeployme
 
 	l1Host.SetTxOrigin(cfg.Deployer)
 
-	output, err := opcm.DeployOPChain(l1Host, opcm.DeployOPChainInput{
+	output, err := opcm.DeployOPChainV160(l1Host, opcm.DeployOPChainInputV160{
 		OpChainProxyAdminOwner:  cfg.ProxyAdminOwner,
 		SystemConfigOwner:       cfg.SystemConfigOwner,
 		Batcher:                 cfg.BatchSenderAddress,
@@ -210,7 +209,7 @@ func DeployL2ToL1(l1Host *script.Host, superCfg *SuperchainConfig, superDeployme
 		BasefeeScalar:           cfg.GasPriceOracleBaseFeeScalar,
 		BlobBaseFeeScalar:       cfg.GasPriceOracleBlobBaseFeeScalar,
 		L2ChainId:               new(big.Int).SetUint64(cfg.L2ChainID),
-		OpcmProxy:               superDeployment.OpcmProxy,
+		Opcm:                    superDeployment.Opcm,
 		SaltMixer:               cfg.SaltMixer,
 		GasLimit:                cfg.GasLimit,
 		DisputeGameType:         cfg.DisputeGameType,

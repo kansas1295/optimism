@@ -99,6 +99,31 @@ contract L2OutputOracle_getter_Test is L2OutputOracle_TestBase {
         l2OutputOracle.getL2Output(nextOutputIndex + 1);
     }
 
+    /// @dev Tests that `getL2OutputAfter` of an L2 block number returns the L2 output of the `getL2OutputIndexAfter` of
+    /// that block number.
+    function test_getL2OutputAfter_succeeds() external {
+        uint8 iterations = 5;
+
+        Types.OutputProposal memory output;
+        Types.OutputProposal memory expectedOutput;
+
+        for (uint8 i; i < iterations; i++) {
+            proposeAnotherOutput();
+        }
+
+        uint256 latestBlockNumber = l2OutputOracle.latestBlockNumber();
+        for (uint8 i = iterations - 1; i > 0; i--) {
+            uint256 index = l2OutputOracle.getL2OutputIndexAfter(latestBlockNumber);
+            output = l2OutputOracle.getL2OutputAfter(latestBlockNumber);
+            expectedOutput = l2OutputOracle.getL2Output(index);
+            assertEq(output.outputRoot, expectedOutput.outputRoot);
+            assertEq(output.timestamp, expectedOutput.timestamp);
+            assertEq(output.l2BlockNumber, expectedOutput.l2BlockNumber);
+
+            latestBlockNumber -= l2OutputOracle.SUBMISSION_INTERVAL();
+        }
+    }
+
     /// @dev Tests that `getL2OutputIndexAfter` returns the correct value
     ///      when the input is the exact block number of the proposal.
     function test_getL2OutputIndexAfter_sameBlock_succeeds() external {
@@ -111,6 +136,10 @@ contract L2OutputOracle_getter_Test is L2OutputOracle_TestBase {
         // Querying with exact same block as proposed returns the proposal.
         uint256 index1 = l2OutputOracle.getL2OutputIndexAfter(nextBlockNumber1);
         assertEq(index1, 0);
+        assertEq(
+            keccak256(abi.encode(l2OutputOracle.getL2Output(index1))),
+            keccak256(abi.encode(output1, block.timestamp, nextBlockNumber1))
+        );
     }
 
     /// @dev Tests that `getL2OutputIndexAfter` returns the correct value
@@ -125,6 +154,10 @@ contract L2OutputOracle_getter_Test is L2OutputOracle_TestBase {
         // Querying with previous block returns the proposal too.
         uint256 index1 = l2OutputOracle.getL2OutputIndexAfter(nextBlockNumber1 - 1);
         assertEq(index1, 0);
+        assertEq(
+            keccak256(abi.encode(l2OutputOracle.getL2Output(index1))),
+            keccak256(abi.encode(output1, block.timestamp, nextBlockNumber1))
+        );
     }
 
     /// @dev Tests that `getL2OutputIndexAfter` returns the correct value.
@@ -156,14 +189,26 @@ contract L2OutputOracle_getter_Test is L2OutputOracle_TestBase {
         // Querying with a block number between the first and second proposal
         uint256 index1 = l2OutputOracle.getL2OutputIndexAfter(nextBlockNumber1 + 1);
         assertEq(index1, 1);
+        assertEq(
+            keccak256(abi.encode(l2OutputOracle.getL2Output(index1))),
+            keccak256(abi.encode(output2, l2OutputOracle.computeL2Timestamp(nextBlockNumber2) + 1, nextBlockNumber2))
+        );
 
         // Querying with a block number between the second and third proposal
         uint256 index2 = l2OutputOracle.getL2OutputIndexAfter(nextBlockNumber2 + 1);
         assertEq(index2, 2);
+        assertEq(
+            keccak256(abi.encode(l2OutputOracle.getL2Output(index2))),
+            keccak256(abi.encode(output3, l2OutputOracle.computeL2Timestamp(nextBlockNumber3) + 1, nextBlockNumber3))
+        );
 
         // Querying with a block number between the third and fourth proposal
         uint256 index3 = l2OutputOracle.getL2OutputIndexAfter(nextBlockNumber3 + 1);
         assertEq(index3, 3);
+        assertEq(
+            keccak256(abi.encode(l2OutputOracle.getL2Output(index3))),
+            keccak256(abi.encode(output4, l2OutputOracle.computeL2Timestamp(nextBlockNumber4) + 1, nextBlockNumber4))
+        );
     }
 
     /// @dev Tests that `getL2OutputIndexAfter` reverts when no output exists.
